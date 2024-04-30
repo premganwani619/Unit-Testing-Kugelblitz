@@ -53,7 +53,7 @@ class UserControllerTest {
     }
 
     @Test
-    void addUser() throws Exception, InvalidUserException {
+    void addUser_GoodScenario() throws Exception, InvalidUserException {
         ObjectMapper objectMapper = new ObjectMapper();
         UserDTO input = UserDTO.builder()
                 .userName("prem")
@@ -62,23 +62,48 @@ class UserControllerTest {
                 .build();
         String requestBody = objectMapper.writeValueAsString(input);
         Mockito.when(userService.addUser(input)).thenReturn(userResponseDTO);
-        mockMvc.perform(post("/users").contentType(MediaType.APPLICATION_JSON).content(requestBody)).andExpect(status().isOk());
+        mockMvc.perform(post("/users").contentType(MediaType.APPLICATION_JSON).content(requestBody))
+                .andExpect(status().isCreated()); // Adjusted to expect HTTP status 201
+    }
+    @Test
+    void addUser_BadScenario_InvalidUser() throws Exception,InvalidUserException {
+        ObjectMapper objectMapper = new ObjectMapper();
+        UserDTO input = UserDTO.builder()
+                .userName(null)
+                .email("premsoni0474@gmail.com")
+                .password("password")
+                .build();
+        String requestBody = objectMapper.writeValueAsString(input);
+
+        Mockito.when(userService.addUser(input)).thenThrow(new InvalidUserException("Invalid user"));
+
+        mockMvc.perform(post("/users")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(requestBody))
+                .andExpect(status().isBadRequest());
     }
 
+
     @Test
-    void getUserById() throws Exception {
+    void getUserById_GoodScenario() throws Exception, InvalidUserException {
         Mockito.when(userService.getUserById(1)).thenReturn(userResponseDTO);
         mockMvc.perform(get("/users/1")).andExpect(status().isOk());
     }
 
     @Test
-    void getAllUsers() throws Exception {
+    void getUserById_BadScenario_UserNotFound() throws Exception, InvalidUserException {
+        Mockito.when(userService.getUserById(4)).thenThrow(new InvalidUserException("User not found"));
+        mockMvc.perform(get("/users/4")).andExpect(status().isBadRequest());
+    }
+
+    @Test
+    void getAllUsers_GoodScenario() throws Exception, InvalidUserException {
         Mockito.when(userService.getAllUsers()).thenReturn(userResponseDTOS);
         mockMvc.perform(get("/users")).andExpect(status().isOk());
     }
 
     @Test
-    void updateUserById() throws Exception {
+    void updateUserById_GoodScenario() throws Exception, InvalidUserException {
         ObjectMapper objectMapper = new ObjectMapper();
         UserResponseDTO input = UserResponseDTO.builder()
                 .userName("updated username")
@@ -91,62 +116,28 @@ class UserControllerTest {
     }
 
     @Test
-    void deleteUserById() throws Exception {
+    void updateUserById_BadScenario_UserNotFound() throws Exception, InvalidUserException {
+        ObjectMapper objectMapper = new ObjectMapper();
+        UserResponseDTO input = UserResponseDTO.builder()
+                .userName("updated username")
+                .email("updateduser@gmail.com")
+                .password("updated-password")
+                .build();
+        String requestBody = objectMapper.writeValueAsString(input);
+        Mockito.when(userService.updateUserById(4, input)).thenThrow(new InvalidUserException("User not found"));
+        mockMvc.perform(put("/users/4").contentType(MediaType.APPLICATION_JSON).content(requestBody)).andExpect(status().isBadRequest());
+    }
+
+    @Test
+    void deleteUserById_GoodScenario() throws Exception, InvalidUserException {
         Mockito.when(userService.deleteUserById(1)).thenReturn("user deleted successfully");
         mockMvc.perform(delete("/users/1")).andExpect(status().isOk());
     }
-//
-//    @Test
-//    @Disabled
-//    void addUser_InvalidInput() throws InvalidUserException, Exception {
-//        ObjectMapper objectMapper = new ObjectMapper();
-//        UserDTO input = UserDTO.builder()
-//                .userName("prem")
-//                .build();
-//        String requestBody = objectMapper.writeValueAsString(input);
-//
-//        Mockito.when(userService.addUser(input)).thenThrow(new InvalidUserException("Invalid user details"));
-//
-//        mockMvc.perform(post("/users")
-//                        .contentType(MediaType.APPLICATION_JSON)
-//                        .content(requestBody))
-//                .andExpect(status().isBadRequest())
-//                .andExpect(jsonPath("$.message").value("Invalid user details"));
-//    }
-//
-//    @Test
-//    @Disabled
-//    void getUserById_UserNotFound() throws Exception {
-//        Mockito.when(userService.getUserById(999)).thenReturn(null);
-//        mockMvc.perform(get("/users/999"))
-//                .andExpect(status().isNotFound());
-//    }
-//
-//    @Test
-//    @Disabled
-//    void updateUserById_UserNotFound() throws Exception {
-//        ObjectMapper objectMapper = new ObjectMapper();
-//        UserResponseDTO input = UserResponseDTO.builder()
-//                .userName("updated username")
-//                .email("updateduser@gmail.com")
-//                .password("updated-password")
-//                .build();
-//        String requestBody = objectMapper.writeValueAsString(input);
-//
-//        Mockito.when(userService.updateUserById(999, input)).thenReturn(null);
-//
-//        mockMvc.perform(put("/users/999")
-//                        .contentType(MediaType.APPLICATION_JSON)
-//                        .content(requestBody))
-//                .andExpect(status().isNotFound());
-//    }
-//
-//    @Test
-//    @Disabled
-//    void deleteUserById_UserNotFound() throws Exception {
-//        Mockito.when(userService.deleteUserById(999)).thenReturn(null);
-//        mockMvc.perform(delete("/users/999"))
-//                .andExpect(status().isNotFound());
-//    }
+
+    @Test
+    void deleteUserById_BadScenario_UserNotFound() throws Exception, InvalidUserException {
+        Mockito.when(userService.deleteUserById(100)).thenThrow(new InvalidUserException("User not found"));
+        mockMvc.perform(delete("/users/100")).andExpect(status().isBadRequest());
+    }
 
 }

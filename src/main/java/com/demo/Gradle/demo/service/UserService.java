@@ -4,23 +4,25 @@ import com.demo.Gradle.demo.dto.UserDTO;
 import com.demo.Gradle.demo.dto.responsedto.UserResponseDTO;
 import com.demo.Gradle.demo.entity.Task;
 import com.demo.Gradle.demo.entity.User;
+import com.demo.Gradle.demo.exceptions.InvalidUserException;
 import com.demo.Gradle.demo.repository.UserRepository;
 import com.demo.Gradle.demo.transformers.TaskTransformer;
 import com.demo.Gradle.demo.transformers.UserTransformer;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.dao.DataAccessException;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.util.List;
 import java.util.Optional;
+import java.util.logging.Logger;
 import java.util.stream.Collectors;
 
 @Service
 public class UserService {
     private final UserRepository userRepository;
-
-
-
     private final UserTransformer userTransformer;
+    private static final Logger logger = Logger.getLogger(UserService.class.getName());
 
     @Autowired
     public UserService(UserRepository userRepository, UserTransformer userTransformer) {
@@ -28,92 +30,102 @@ public class UserService {
         this.userTransformer = userTransformer;
     }
 
-    public List<UserResponseDTO> getAllUsers() {
-        List<User> users = userRepository.findAll();
-        return users.stream()
-                .map(userTransformer::toResponseDTO)
-                .collect(Collectors.toList());
+    @Transactional
+    public List<UserResponseDTO> getAllUsers() throws InvalidUserException {
+        try {
+            List<User> users = userRepository.findAll();
+            logger.info("Retrieved all users from the database");
+            return users.stream()
+                    .map(userTransformer::toResponseDTO)
+                    .collect(Collectors.toList());
+        } catch (DataAccessException ex) {
+            logger.severe("Failed to retrieve users from the database: " + ex.getMessage());
+            throw new InvalidUserException("Failed to fetch users");
+        }
     }
 
-    public UserResponseDTO getUserById(int id) {
-        User user = userRepository.findById(id).get();
-        UserResponseDTO userResponseDTO = new UserResponseDTO();
-        userResponseDTO.setId(user.getUserId());
-        userResponseDTO.setUserName(user.getUserName());
-        userResponseDTO.setEmail(user.getEmail());
-        userResponseDTO.setPassword(user.getPassword());
-        return userResponseDTO;
-
+    @Transactional
+    public UserResponseDTO getUserById(int id) throws InvalidUserException {
+        try {
+            User user = userRepository.findById(id).orElseThrow(() -> new RuntimeException("User not found with id: " + id));
+            logger.info("Retrieved user with id: " + id + " from the database");
+            return userTransformer.toResponseDTO(user);
+        } catch (RuntimeException ex) {
+            logger.warning("Failed to retrieve user with id " + id + " from the database: " + ex.getMessage());
+            throw new InvalidUserException("Failed to fetch user with id: " + id);
+        }
     }
 
-    public String deleteUserById(int id) {
-        userRepository.deleteById(id);
-        return "User Deleted Successfully";
-
+    @Transactional
+    public String deleteUserById(int id) throws InvalidUserException {
+        try {
+            Optional<User> userOptional = userRepository.findById(id);
+            if (userOptional.isPresent()) {
+                userRepository.deleteById(id);
+                logger.info("User deleted successfully with id: " + id);
+                return "User Deleted Successfully";
+            } else {
+                throw new InvalidUserException("User not found with id: " + id);
+            }
+        } catch (Exception ex) {
+            logger.warning("Failed to delete user with id " + id + ": " + ex.getMessage());
+            throw new InvalidUserException("Failed to delete user with id: " + id);
+        }
     }
 
-//    public UserDTO addUser(UserDTO newUserDTO) {
-//        User user = new User();
-//        user.setUserName(newUserDTO.getUserName());
-//        user.setEmail(newUserDTO.getEmail());
-//        user.setPassword(newUserDTO.getPassword());
-//        user.setTasks(newUserDTO.getTasks().stream().map(taskDto -> TaskTransformer.toEntity(user, taskDto)).collect(Collectors.toList()));
-////        User newUser = userTransformer.toEntity(newUserDTO);
-//        User savedUser = userRepository.save(user);
-//        return userTransformer.toDTO(savedUser);
-//    }
+    @Transactional
+    public UserResponseDTO addUser(UserDTO newUserDTO) throws InvalidUserException {
+        try {
+            Optional<User> existingUserOptional = userRepository.findByEmail(newUserDTO.getEmail());
 
-//    public UserResponseDTO addUser(UserDTO newUserDTO) {
-//        User user = new User();
-//        user.setUserName(newUserDTO.getUserName());
-//        user.setEmail(newUserDTO.getEmail());
-//        user.setPassword(newUserDTO.getPassword());
-//        User savedUser = userRepository.save(user);
-//
-//        List<Task> tasks = newUserDTO.getTasks().stream()
-//                .map(taskDto -> {
-//                    Task task = TaskTransformer.toEntity(taskDto);
-//                    task.setUser(savedUser);
-//                    return task;
-//                })
-//                .collect(Collectors.toList());
-//
-//        List<Task> savedTasks = taskRepository.saveAll(tasks);
-//
-//        return userTransformer.toResponseDTO(savedUser);
-//    }
-    public UserResponseDTO addUser(UserDTO newUserDTO) {
-        User user = new User();
-        user.setUserName(newUserDTO.getUserName());
-        user.setEmail(newUserDTO.getEmail());
-        user.setPassword(newUserDTO.getPassword());
+            if (existingUserOptional.isPresent()) {
+                throw new InvalidUserException("User with email " + newUserDTO.getEmail() + " already exists");
+            }
 
-        // Set tasks for the user
-        List<Task> tasks = newUserDTO.getTasks().stream()
-                .map(taskDto -> {
-                    Task task = TaskTransformer.toEntity(taskDto);
-                    task.setUser(user); // Set user for the task
-                    return task;
-                })
-                .collect(Collectors.toList());
+            User user = new User();
+            user.setUserName(newUserDTO.getUserName());
+            user.setEmail(newUserDTO.getEmail());
+            user.setPassword(newUserDTO.getPassword());
 
-        user.setTask(tasks); // Set tasks for the user entity
-        User savedUser = userRepository.save(user);
+            List<Task> tasks = newUserDTO.getTasks().stream()
+                    .map(taskDto -> {
+                        Task task = TaskTransformer.toEntity(taskDto);
+                        task.setUser(user);
+                        return task;
+                    })
+                    .collect(Collectors.toList());
 
-        return userTransformer.toResponseDTO(savedUser);
+            user.setTask(tasks);
+            User savedUser = userRepository.save(user);
+
+            logger.info("User added successfully with email: " + newUserDTO.getEmail());
+            return userTransformer.toResponseDTO(savedUser);
+        } catch (DataAccessException ex) {
+            logger.severe("Failed to add user: " + ex.getMessage());
+            throw new InvalidUserException("Failed to add user");
+        } catch (NullPointerException ex) {
+            logger.warning("Failed to add user: User not found");
+            throw new InvalidUserException("Failed to add user: User not found");
+        }
     }
 
-
-
-    public UserResponseDTO updateUserById(int id, UserResponseDTO userUpdatedDTO) {
-        Optional<UserDTO> optionalUser = Optional.of(userTransformer.toDTO(userRepository.findById(id).get()));
-        UserDTO existingUser = optionalUser.get();
-        existingUser.setUserName(userUpdatedDTO.getUserName());
-        existingUser.setEmail(userUpdatedDTO.getEmail());
-        existingUser.setPassword(userUpdatedDTO.getPassword());
-        userRepository.updateUser(id, existingUser.getUserName(),existingUser.getEmail(),existingUser.getPassword());
-        return userTransformer.toResponseDTO(id,existingUser);
+    @Transactional
+    public UserResponseDTO updateUserById(int id, UserResponseDTO userUpdatedDTO) throws InvalidUserException {
+        try {
+            Optional<User> optionalUser = userRepository.findById(id);
+            if (!optionalUser.isPresent()) {
+                throw new InvalidUserException("User not found with id: " + id);
+            }
+            User existingUser = optionalUser.get();
+            existingUser.setUserName(userUpdatedDTO.getUserName());
+            existingUser.setEmail(userUpdatedDTO.getEmail());
+            existingUser.setPassword(userUpdatedDTO.getPassword());
+            userRepository.updateUser(id, existingUser.getUserName(), existingUser.getEmail(), existingUser.getPassword());
+            logger.info("User updated successfully with id: " + id);
+            return userTransformer.toResponseDTO(existingUser);
+        } catch (Exception ex) {
+            logger.warning("Failed to update user with id " + id + ": " + ex.getMessage());
+            throw new InvalidUserException("Failed to update user with id: " + id);
+        }
     }
-
-
 }
